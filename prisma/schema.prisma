@@ -1,0 +1,475 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ============================================================
+// ORTAK TABLOLAR (tüm idari projeler)
+// ============================================================
+
+model User {
+  id           Int       @id @default(autoincrement())
+  username     String    @unique @db.VarChar(50)
+  fullName     String    @map("full_name") @db.VarChar(100)
+  passwordHash String    @map("password_hash") @db.VarChar(100)
+  phone        String?   @db.VarChar(20)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  projectRoles       UserProjectRole[]
+  attendanceSessions AttendanceSession[]
+  attendanceRecords  AttendanceRecord[]
+  contactLogs        AttendanceContactLog[]
+  telegramAccounts   TelegramAccount[]
+  telegramLinkCodes  TelegramLinkCode[]
+  attendanceSlips    AttendanceSlip[]
+
+  @@map("users")
+}
+
+// Kullanıcının proje bazındaki yetkisi. project örn. "yoklama"; role örn. "ADMIN", "STAFF".
+model UserProjectRole {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  project   String   @db.VarChar(50)
+  role      String   @db.VarChar(30)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, project])
+  @@map("user_project_roles")
+}
+
+model AcademicYear {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(9)
+  startsOn  DateTime  @map("starts_on") @db.Date
+  endsOn    DateTime? @map("ends_on") @db.Date
+  isCurrent Boolean   @default(false) @map("is_current")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  terms       AcademicTerm[]
+  classGroups ClassGroup[]
+  enrollments StudentEnrollment[]
+
+  @@map("academic_years")
+}
+
+// Yıl içindeki dönemler (örn. Yaz Programı, Kış Programı). Raporlarda tarih aralığı olarak kullanılır.
+model AcademicTerm {
+  id             Int       @id @default(autoincrement())
+  academicYearId Int       @map("academic_year_id")
+  name           String    @db.VarChar(50)
+  startsOn       DateTime  @map("starts_on") @db.Date
+  endsOn         DateTime? @map("ends_on") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+
+  @@unique([academicYearId, name])
+  @@map("academic_terms")
+}
+
+model Branch {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(150)
+  slug      String   @unique @db.VarChar(100)
+  address   String?  @db.VarChar(500)
+  phone     String?  @db.VarChar(20)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  classGroups        ClassGroup[]
+  enrollments        StudentEnrollment[]
+  lessonPeriods      LessonPeriod[]
+  attendanceSetting  AttendanceSetting?
+  teachers           Teacher[]
+  aiSetting          BranchAiSetting?
+  telegramAccounts   TelegramAccount[]
+  telegramLinkCodes  TelegramLinkCode[]
+  attendanceSlips    AttendanceSlip[]
+
+  @@map("branches")
+}
+
+model Teacher {
+  id        Int      @id @default(autoincrement())
+  branchId  Int      @map("branch_id")
+  firstName String   @map("first_name") @db.VarChar(100)
+  lastName  String   @map("last_name") @db.VarChar(100)
+  subject   String?  @db.VarChar(100)
+  phone     String?  @db.VarChar(20)
+  email     String?  @db.VarChar(150)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branch             Branch              @relation(fields: [branchId], references: [id])
+  telegramAccounts   TelegramAccount[]
+  telegramLinkCodes  TelegramLinkCode[]
+  attendanceSlips    AttendanceSlip[]
+  attendanceSessions AttendanceSession[]
+  attendanceRecords  AttendanceRecord[]
+
+  @@index([branchId])
+  @@map("teachers")
+}
+
+// Kurum bazlı yapay zeka (OpenAI uyumlu API) ayarları
+model BranchAiSetting {
+  id        Int      @id @default(autoincrement())
+  branchId  Int      @unique @map("branch_id")
+  baseUrl   String   @map("base_url") @db.VarChar(255)
+  apiKey    String   @map("api_key") @db.VarChar(255)
+  model     String   @db.VarChar(100)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@map("branch_ai_settings")
+}
+
+// Telegram sohbeti ile kullanıcı veya öğretmen eşleşmesi
+model TelegramAccount {
+  id         Int      @id @default(autoincrement())
+  chatId     String   @unique @map("chat_id") @db.VarChar(32)
+  username   String?  @db.VarChar(100)
+  fullName   String?  @map("full_name") @db.VarChar(150)
+  branchId   Int      @map("branch_id")
+  userId     Int?     @map("user_id")
+  teacherId  Int?     @map("teacher_id")
+  linkedAt   DateTime @default(now()) @map("linked_at")
+
+  branch  Branch   @relation(fields: [branchId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([teacherId])
+  @@map("telegram_accounts")
+}
+
+model TelegramLinkCode {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique @db.VarChar(12)
+  branchId  Int       @map("branch_id")
+  userId    Int?      @map("user_id")
+  teacherId Int?      @map("teacher_id")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  branch  Branch   @relation(fields: [branchId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_link_codes")
+}
+
+enum SlipStatus {
+  PENDING
+  APPLIED
+  CANCELLED
+  FAILED
+}
+
+// Telegram'dan gelen yoklama fişi görseli ve AI çözümlemesi
+model AttendanceSlip {
+  id                Int        @id @default(autoincrement())
+  branchId          Int        @map("branch_id")
+  academicYearId    Int        @map("academic_year_id")
+  chatId            String     @map("chat_id") @db.VarChar(32)
+  userId            Int?       @map("user_id")
+  teacherId         Int?       @map("teacher_id")
+  telegramFileId    String     @map("telegram_file_id") @db.VarChar(255)
+  previewMessageId  Int?       @map("preview_message_id")
+  status            SlipStatus @default(PENDING)
+  parsed            Json?
+  matched           Json?
+  errorMessage      String?    @map("error_message") @db.VarChar(500)
+  analysisMs        Int?       @map("analysis_ms")
+  totalMs           Int?       @map("total_ms")
+  appliedAt         DateTime?  @map("applied_at")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  branch  Branch   @relation(fields: [branchId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, createdAt])
+  @@map("attendance_slips")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+model Student {
+  id         Int       @id @default(autoincrement())
+  nationalId String    @unique @map("national_id") @db.VarChar(11)
+  firstName  String    @map("first_name") @db.VarChar(100)
+  lastName   String    @map("last_name") @db.VarChar(100)
+  gender     Gender?
+  birthDate  DateTime? @map("birth_date") @db.Date
+  phone      String?   @db.VarChar(20)
+  email      String?   @db.VarChar(150)
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  guardians   StudentGuardian[]
+  enrollments StudentEnrollment[]
+
+  @@index([lastName, firstName])
+  @@map("students")
+}
+
+model Guardian {
+  id         Int      @id @default(autoincrement())
+  nationalId String?  @unique @map("national_id") @db.VarChar(11)
+  firstName  String   @map("first_name") @db.VarChar(100)
+  lastName   String   @map("last_name") @db.VarChar(100)
+  phone      String?  @db.VarChar(20)
+  email      String?  @db.VarChar(150)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  students    StudentGuardian[]
+  contactLogs AttendanceContactLog[]
+
+  @@index([phone])
+  @@map("guardians")
+}
+
+enum GuardianRelation {
+  MOTHER
+  FATHER
+  OTHER
+}
+
+model StudentGuardian {
+  id           Int              @id @default(autoincrement())
+  studentId    Int              @map("student_id")
+  guardianId   Int              @map("guardian_id")
+  relation     GuardianRelation
+  contactOrder Int?             @map("contact_order")
+  receivesSms  Boolean          @default(true) @map("receives_sms")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, guardianId])
+  @@map("student_guardians")
+}
+
+model ClassGroup {
+  id             Int      @id @default(autoincrement())
+  branchId       Int      @map("branch_id")
+  academicYearId Int      @map("academic_year_id")
+  gradeLevel     String   @map("grade_level") @db.VarChar(20)
+  name           String   @db.VarChar(30)
+  field          String?  @db.VarChar(20)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  branch             Branch              @relation(fields: [branchId], references: [id])
+  academicYear       AcademicYear        @relation(fields: [academicYearId], references: [id])
+  enrollments        StudentEnrollment[]
+  attendanceSessions AttendanceSession[]
+
+  @@unique([branchId, academicYearId, gradeLevel, name])
+  @@map("class_groups")
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  CANCELLED
+}
+
+model StudentEnrollment {
+  id             Int              @id @default(autoincrement())
+  studentId      Int              @map("student_id")
+  branchId       Int              @map("branch_id")
+  academicYearId Int              @map("academic_year_id")
+  classGroupId   Int?             @map("class_group_id")
+  studentNo      Int              @map("student_no")
+  enrollmentType String?          @map("enrollment_type") @db.VarChar(30)
+  enrolledOn     DateTime?        @map("enrolled_on") @db.Date
+  field          String?          @db.VarChar(20)
+  status         EnrollmentStatus @default(ACTIVE)
+  externalId     String?          @unique @map("external_id") @db.VarChar(64)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  student           Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  branch            Branch             @relation(fields: [branchId], references: [id])
+  academicYear      AcademicYear       @relation(fields: [academicYearId], references: [id])
+  classGroup        ClassGroup?        @relation(fields: [classGroupId], references: [id], onDelete: SetNull)
+  attendanceRecords AttendanceRecord[]
+  dailyAbsences     DailyAbsence[]
+
+  @@unique([branchId, academicYearId, studentNo])
+  @@unique([studentId, branchId, academicYearId])
+  @@index([classGroupId])
+  @@map("student_enrollments")
+}
+
+// ============================================================
+// YOKLAMA
+// ============================================================
+
+enum DaySession {
+  MORNING
+  AFTERNOON
+}
+
+model LessonPeriod {
+  id        Int        @id @default(autoincrement())
+  branchId  Int        @map("branch_id")
+  orderNo   Int        @map("order_no")
+  name      String     @db.VarChar(50)
+  session   DaySession @default(MORNING)
+  startTime String?    @map("start_time") @db.VarChar(5)
+  endTime   String?    @map("end_time") @db.VarChar(5)
+  isActive  Boolean    @default(true) @map("is_active")
+
+  branch  Branch             @relation(fields: [branchId], references: [id])
+  records AttendanceRecord[]
+
+  @@map("lesson_periods")
+}
+
+model AttendanceSetting {
+  id                   Int      @id @default(autoincrement())
+  branchId             Int      @unique @map("branch_id")
+  windowDays           Int      @default(30) @map("window_days")
+  absenceThreshold     Int      @default(5) @map("absence_threshold")
+  consecutiveThreshold Int      @default(3) @map("consecutive_threshold")
+  countLate            Boolean  @default(false) @map("count_late")
+  countExcused         Boolean  @default(false) @map("count_excused")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@map("attendance_settings")
+}
+
+// Bir sınıfın bir gün/derste yoklamasının alındığını gösterir. slot: 0 = günlük, aksi halde lesson_periods.id
+model AttendanceSession {
+  id           Int      @id @default(autoincrement())
+  classGroupId Int      @map("class_group_id")
+  date         DateTime @db.Date
+  slot         Int      @default(0)
+  takenById    Int?     @map("taken_by_id")
+  teacherId    Int?     @map("teacher_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  classGroup ClassGroup @relation(fields: [classGroupId], references: [id], onDelete: Cascade)
+  takenBy    User?      @relation(fields: [takenById], references: [id])
+  teacher    Teacher?   @relation(fields: [teacherId], references: [id])
+
+  @@unique([classGroupId, date, slot])
+  @@index([date])
+  @@map("attendance_sessions")
+}
+
+// "Var" kaydedilmez; kayıt yoksa öğrenci derstedir.
+enum AttendanceStatus {
+  ABSENT
+  LATE
+  EARLY_LEAVE
+  EXCUSED
+}
+
+model AttendanceRecord {
+  id             Int              @id @default(autoincrement())
+  enrollmentId   Int              @map("enrollment_id")
+  date           DateTime         @db.Date
+  slot           Int              @default(0)
+  lessonPeriodId Int?             @map("lesson_period_id")
+  status         AttendanceStatus
+  note           String?          @db.VarChar(255)
+  createdById    Int?             @map("created_by_id")
+  teacherId      Int?             @map("teacher_id")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  enrollment   StudentEnrollment      @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lessonPeriod LessonPeriod?          @relation(fields: [lessonPeriodId], references: [id], onDelete: SetNull)
+  createdBy    User?                  @relation(fields: [createdById], references: [id])
+  teacher      Teacher?               @relation(fields: [teacherId], references: [id])
+  contactLogs  AttendanceContactLog[]
+
+  @@unique([enrollmentId, date, slot])
+  @@index([date])
+  @@map("attendance_records")
+}
+
+enum DailyAbsenceKind {
+  FULL_DAY
+  HALF_DAY
+  LATE
+  EXCUSED
+}
+
+// Ders devamsızlıklarından türetilen günlük devamsızlık (idareye sunulan kayıt). Açıklama elle girilir.
+model DailyAbsence {
+  id           Int              @id @default(autoincrement())
+  enrollmentId Int              @map("enrollment_id")
+  date         DateTime         @db.Date
+  kind         DailyAbsenceKind
+  days         Decimal          @db.Decimal(2, 1)
+  session      DaySession?
+  lateCount    Int              @default(0) @map("late_count")
+  detail       String?          @db.VarChar(255)
+  note         String?          @db.VarChar(500)
+  manual       Boolean          @default(false)
+  updatedById  Int?             @map("updated_by_id")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  enrollment StudentEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, date])
+  @@index([date])
+  @@map("daily_absences")
+}
+
+enum ContactResult {
+  REACHED
+  NO_ANSWER
+  SMS_SENT
+  PARENT_INFORMED
+}
+
+model AttendanceContactLog {
+  id         Int           @id @default(autoincrement())
+  recordId   Int           @map("record_id")
+  guardianId Int?          @map("guardian_id")
+  result     ContactResult
+  note       String?       @db.VarChar(255)
+  userId     Int           @map("user_id")
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  record   AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  guardian Guardian?        @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+  user     User             @relation(fields: [userId], references: [id])
+
+  @@index([recordId])
+  @@map("attendance_contact_logs")
+}

@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+src/generated
+.env*
+!.env.example
+.agents
+.claude
+.windsurf
+Dockerfile
+README.md

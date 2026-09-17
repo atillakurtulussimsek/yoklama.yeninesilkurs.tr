@@ -1,4 +1,5 @@
 import "server-only";
+import { env } from "@/lib/env";
 
 // Telegram Bot API – yalnızca ihtiyaç duyulan uçlar, kütüphanesiz
 
@@ -24,13 +25,13 @@ export type TelegramUpdate = { update_id: number; message?: TelegramMessage; cal
 export type InlineKeyboard = { text: string; callback_data: string }[][];
 
 function token() {
-  const value = process.env.TELEGRAM_BOT_TOKEN;
+  const value = env("TELEGRAM_BOT_TOKEN");
   if (!value) throw new Error("TELEGRAM_BOT_TOKEN tanımlı değil");
   return value;
 }
 
 export function isTelegramConfigured() {
-  return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_WEBHOOK_SECRET);
+  return Boolean(env("TELEGRAM_BOT_TOKEN") && env("TELEGRAM_WEBHOOK_SECRET"));
 }
 
 async function call<T>(method: string, body: Record<string, unknown>): Promise<T> {
@@ -84,7 +85,7 @@ export async function downloadFile(fileId: string) {
 }
 
 export async function setWebhook(url: string) {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const secret = env("TELEGRAM_WEBHOOK_SECRET");
   if (!secret) throw new Error("TELEGRAM_WEBHOOK_SECRET tanımlı değil");
   return call<boolean>("setWebhook", {
     url,

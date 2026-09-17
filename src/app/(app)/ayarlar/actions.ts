@@ -10,6 +10,7 @@ import { isDateStr, toDbDate } from "@/lib/dates";
 import { normalizePhone } from "@/lib/phone";
 import { saveChronicSettings } from "@/lib/settings";
 import { getWebhookInfo, isTelegramConfigured, setWebhook } from "@/lib/telegram";
+import { env } from "@/lib/env";
 
 export type ActionState = { error?: string; ok?: string } | undefined;
 
@@ -126,8 +127,8 @@ export async function updateAiSettings(_state: ActionState, formData: FormData):
 export async function setupTelegramWebhook(): Promise<{ ok?: string; error?: string }> {
   if (!(await ensureAdmin())) return { error: "Yetkiniz yok" };
   if (!isTelegramConfigured()) return { error: "TELEGRAM_BOT_TOKEN / TELEGRAM_WEBHOOK_SECRET tanımlı değil" };
-  const appUrl = process.env.APP_URL?.replace(/\/+$/, "");
-  if (!appUrl?.startsWith("https://")) return { error: "APP_URL https ile başlayan dış adres olmalı" };
+  const appUrl = env("APP_URL").replace(/\/+$/, "");
+  if (!appUrl.startsWith("https://")) return { error: "APP_URL https ile başlayan dış adres olmalı" };
   try {
     await setWebhook(`${appUrl}/api/telegram/webhook`);
     const info = await getWebhookInfo();

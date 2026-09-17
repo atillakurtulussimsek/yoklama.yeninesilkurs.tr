@@ -4,6 +4,7 @@ import { requireContext } from "@/lib/context";
 import { getChronicSettings } from "@/lib/settings";
 import { getBotUsername } from "@/lib/botInfo";
 import { isTelegramConfigured } from "@/lib/telegram";
+import { env, telegramEnvStatus } from "@/lib/env";
 import AiSettingsForm from "./AiSettingsForm";
 import ChronicForm from "./ChronicForm";
 import TelegramSetup from "./TelegramSetup";
@@ -18,7 +19,8 @@ export default async function SettingsPage() {
     prisma.branchAiSetting.findUnique({ where: { branchId: branch.id } }),
     getBotUsername(),
   ]);
-  const webhookUrl = `${(process.env.APP_URL ?? "").replace(/\/+$/, "")}/api/telegram/webhook`;
+  const webhookUrl = `${env("APP_URL").replace(/\/+$/, "")}/api/telegram/webhook`;
+  const envStatus = telegramEnvStatus();
   const nextOrder = Math.max(0, ...lessons.map((lesson) => lesson.orderNo)) + 1;
 
   return (
@@ -74,6 +76,17 @@ export default async function SettingsPage() {
               : "Bot token tanımlı ancak Telegram'a ulaşılamadı."
             : "TELEGRAM_BOT_TOKEN ve TELEGRAM_WEBHOOK_SECRET ortam değişkenleri tanımlanmalı."}
         </p>
+        <div className="mb-3 flex flex-wrap gap-2 text-xs">
+          {(["botToken", "webhookSecret", "appUrl"] as const).map((key) => {
+            const label = { botToken: "TELEGRAM_BOT_TOKEN", webhookSecret: "TELEGRAM_WEBHOOK_SECRET", appUrl: "APP_URL" }[key];
+            const ok = envStatus[key];
+            return (
+              <span key={key} className={`badge ${ok ? "bg-emerald-100 text-emerald-800 ring-emerald-200" : "bg-red-100 text-red-800 ring-red-200"}`}>
+                {label}: {ok ? "tanımlı" : "eksik"}
+              </span>
+            );
+          })}
+        </div>
         {isTelegramConfigured() && <TelegramSetup webhookUrl={webhookUrl} />}
       </section>
     </div>

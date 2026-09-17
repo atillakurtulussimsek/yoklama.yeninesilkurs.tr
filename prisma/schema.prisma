@@ -177,10 +177,16 @@ model TelegramLinkCode {
 }
 
 enum SlipStatus {
+  ANALYZING
   PENDING
   APPLIED
   CANCELLED
   FAILED
+}
+
+enum SlipSource {
+  TELEGRAM
+  WEB
 }
 
 // Telegram'dan gelen yoklama fişi görseli ve AI çözümlemesi
@@ -188,11 +194,16 @@ model AttendanceSlip {
   id                Int        @id @default(autoincrement())
   branchId          Int        @map("branch_id")
   academicYearId    Int        @map("academic_year_id")
-  chatId            String     @map("chat_id") @db.VarChar(32)
+  source            SlipSource @default(TELEGRAM)
+  chatId            String?    @map("chat_id") @db.VarChar(32)
   userId            Int?       @map("user_id")
   teacherId         Int?       @map("teacher_id")
-  telegramFileId    String     @map("telegram_file_id") @db.VarChar(255)
+  telegramFileId    String?    @map("telegram_file_id") @db.VarChar(255)
   previewMessageId  Int?       @map("preview_message_id")
+  fileName          String?    @map("file_name") @db.VarChar(255)
+  imageMime         String?    @map("image_mime") @db.VarChar(50)
+  imageData         Bytes?     @map("image_data") @db.MediumBlob
+  reviewedById      Int?       @map("reviewed_by_id")
   status            SlipStatus @default(PENDING)
   parsed            Json?
   matched           Json?

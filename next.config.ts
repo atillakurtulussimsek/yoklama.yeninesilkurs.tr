@@ -7,8 +7,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit"],
   experimental: {
     serverActions: {
-      // Öğrenci listesi Excel yüklemesi için
-      bodySizeLimit: "10mb",
+      // Excel ve toplu fiş görseli yüklemeleri için
+      bodySizeLimit: "100mb",
     },
   },
 };

@@ -1,0 +1,10 @@
+-- AlterTable
+ALTER TABLE `attendance_slips` ADD COLUMN `file_name` VARCHAR(255) NULL,
+    ADD COLUMN `image_data` MEDIUMBLOB NULL,
+    ADD COLUMN `image_mime` VARCHAR(50) NULL,
+    ADD COLUMN `reviewed_by_id` INTEGER NULL,
+    ADD COLUMN `source` ENUM('TELEGRAM', 'WEB') NOT NULL DEFAULT 'TELEGRAM',
+    MODIFY `chat_id` VARCHAR(32) NULL,
+    MODIFY `telegram_file_id` VARCHAR(255) NULL,
+    MODIFY `status` ENUM('ANALYZING', 'PENDING', 'APPLIED', 'CANCELLED', 'FAILED') NOT NULL DEFAULT 'PENDING';
+

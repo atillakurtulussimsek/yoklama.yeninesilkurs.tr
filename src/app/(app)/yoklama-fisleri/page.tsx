@@ -1,97 +1,104 @@
 import { prisma } from "@/lib/db";
 import { requireContext } from "@/lib/context";
 import { fullName } from "@/lib/classGroups";
-import { formatDate, formatDateTime } from "@/lib/dates";
-import { STATUS_LABELS } from "@/lib/labels";
+import { formatDateTime, todayStr } from "@/lib/dates";
+import { getClassGroupOptions } from "@/lib/reports";
 import type { MatchResult } from "@/lib/slipMatching";
+import type { ParsedSlip } from "@/lib/ai";
 import type { SlipStatus } from "@/generated/prisma/enums";
+import AutoRefresh from "./AutoRefresh";
+import SlipCard, { type SlipView } from "./SlipCard";
+import UploadForm from "./UploadForm";
 
-const STATUS_BADGES: Record<SlipStatus, { label: string; className: string }> = {
-  PENDING: { label: "Onay bekliyor", className: "bg-amber-100 text-amber-800 ring-amber-200" },
-  APPLIED: { label: "Kaydedildi", className: "bg-emerald-100 text-emerald-800 ring-emerald-200" },
-  CANCELLED: { label: "İptal", className: "bg-gray-100 text-gray-600 ring-gray-200" },
-  FAILED: { label: "Hata", className: "bg-red-100 text-red-800 ring-red-200" },
-};
+const FILTERS: { key: string; label: string; statuses: SlipStatus[] }[] = [
+  { key: "bekleyen", label: "Bekleyen", statuses: ["ANALYZING", "PENDING", "FAILED"] },
+  { key: "kaydedilen", label: "Kaydedilen", statuses: ["APPLIED"] },
+  { key: "reddedilen", label: "Reddedilen", statuses: ["CANCELLED"] },
+  { key: "tumu", label: "Tümü", statuses: ["ANALYZING", "PENDING", "FAILED", "APPLIED", "CANCELLED"] },
+];
 
-export default async function SlipsPage() {
-  const { branch } = await requireContext();
-  const slips = await prisma.attendanceSlip.findMany({
-    where: { branchId: branch.id },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    include: {
-      user: { select: { fullName: true } },
-      teacher: { select: { firstName: true, lastName: true } },
-    },
+export default async function SlipsPage({ searchParams }: PageProps<"/yoklama-fisleri">) {
+  const { user, branch, academicYear } = await requireContext();
+  const params = await searchParams;
+  const filter = FILTERS.find((item) => item.key === params.filtre) ?? FILTERS[0];
+
+  const [slips, classGroups, counts] = await Promise.all([
+    prisma.attendanceSlip.findMany({
+      where: { branchId: branch.id, academicYearId: academicYear.id, status: { in: filter.statuses } },
+      orderBy: { createdAt: "desc" },
+      take: 60,
+      select: {
+        id: true,
+        status: true,
+        source: true,
+        fileName: true,
+        createdAt: true,
+        analysisMs: true,
+        errorMessage: true,
+        matched: true,
+        parsed: true,
+        imageMime: true,
+        telegramFileId: true,
+        user: { select: { fullName: true } },
+        teacher: { select: { firstName: true, lastName: true } },
+      },
+    }),
+    getClassGroupOptions(branch.id, academicYear.id),
+    prisma.attendanceSlip.groupBy({ by: ["status"], where: { branchId: branch.id, academicYearId: academicYear.id }, _count: { _all: true } }),
+  ]);
+  const countOf = (statuses: SlipStatus[]) => counts.filter((c) => statuses.includes(c.status)).reduce((s, c) => s + c._count._all, 0);
+  const analyzing = slips.some((slip) => slip.status === "ANALYZING");
+
+  const views: SlipView[] = slips.map((slip) => {
+    const raw = slip.matched as Partial<MatchResult> | null;
+    return {
+      id: slip.id,
+      status: slip.status,
+      source: slip.source,
+      fileName: slip.fileName,
+      createdAt: formatDateTime(slip.createdAt),
+      submitter: slip.user?.fullName ?? (slip.teacher ? `${fullName(slip.teacher)} (öğretmen)` : "-"),
+      analysisMs: slip.analysisMs,
+      errorMessage: slip.errorMessage,
+      matched: raw && Array.isArray(raw.lessons) ? (raw as MatchResult) : null,
+      parsedClassName: (slip.parsed as ParsedSlip | null)?.className ?? null,
+      hasImage: Boolean(slip.imageMime || slip.telegramFileId),
+    };
   });
 
   return (
     <div className="space-y-5">
+      <AutoRefresh active={analyzing} />
       <div>
-        <h1 className="text-2xl font-semibold">Telegram Fişleri</h1>
-        <p className="text-sm text-gray-500">{branch.name} · Telegram botuna gönderilen yoklama fişleri (son 100)</p>
+        <h1 className="text-2xl font-semibold">Yoklama Fişleri</h1>
+        <p className="text-sm text-gray-500">
+          {branch.name} · Fiş görsellerini yükleyin veya Telegram&apos;dan gönderin; yapay zeka okur, siz onaylarsınız.
+        </p>
       </div>
 
-      <div className="card overflow-x-auto">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Gönderim</th>
-              <th>Gönderen</th>
-              <th>Durum</th>
-              <th>Süre</th>
-              <th>Sınıf · Tarih</th>
-              <th>Çözümleme</th>
-            </tr>
-          </thead>
-          <tbody>
-            {slips.map((slip) => {
-              // Eski biçimde kaydedilmiş fişlerde "lessons" olmayabilir
-              const raw = slip.matched as Partial<MatchResult> | null;
-              const matched = raw && Array.isArray(raw.lessons) ? (raw as MatchResult) : null;
-              const badge = STATUS_BADGES[slip.status];
-              return (
-                <tr key={slip.id}>
-                  <td className="whitespace-nowrap text-gray-500">{formatDateTime(slip.createdAt)}</td>
-                  <td className="whitespace-nowrap">
-                    {slip.user?.fullName ?? (slip.teacher ? fullName(slip.teacher) : "-")}
-                    {slip.teacher && <span className="ml-1 text-xs text-gray-400">öğretmen</span>}
-                  </td>
-                  <td>
-                    <span className={`badge ${badge.className}`}>{badge.label}</span>
-                    {slip.errorMessage && <div className="mt-1 max-w-xs text-xs text-red-600">{slip.errorMessage}</div>}
-                  </td>
-                  <td className="whitespace-nowrap text-xs text-gray-500">
-                    {slip.analysisMs ? `AI ${Math.round(slip.analysisMs / 1000)} sn` : "-"}
-                    {slip.totalMs ? <div>toplam {Math.round(slip.totalMs / 1000)} sn</div> : null}
-                  </td>
-                  <td className="whitespace-nowrap">
-                    {matched ? `${matched.className ?? "?"} · ${formatDate(matched.date)}` : raw?.date ? `${raw.className ?? "?"} · ${formatDate(raw.date)} (eski biçim)` : "-"}
-                  </td>
-                  <td className="text-xs">
-                    {matched?.lessons.map((lesson) => (
-                      <div key={lesson.lessonNo} className="mb-1">
-                        <span className="font-medium">{lesson.lessonNo}. ders{lesson.subject ? ` (${lesson.subject})` : ""}:</span>{" "}
-                        {lesson.absences.length === 0
-                          ? <span className="text-gray-400">tam</span>
-                          : lesson.absences.map((absence, index) => (
-                              <span key={index} className={absence.enrollmentId ? "" : "text-red-600"}>
-                                {index > 0 && ", "}
-                                {absence.enrollmentId ? `${absence.fullName} (${absence.studentNo})` : `"${absence.raw}" eşleşmedi`} – {STATUS_LABELS[absence.status]}
-                              </span>
-                            ))}
-                      </div>
-                    ))}
-                  </td>
-                </tr>
-              );
-            })}
-            {slips.length === 0 && (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-500">Henüz fiş gönderilmemiş.</td></tr>
-            )}
-          </tbody>
-        </table>
+      <UploadForm today={todayStr()} />
+
+      <div className="flex flex-wrap gap-1 rounded-lg border border-gray-300 bg-white p-0.5 text-sm w-fit">
+        {FILTERS.map((item) => (
+          <a
+            key={item.key}
+            href={`/yoklama-fisleri?filtre=${item.key}`}
+            className={`rounded-md px-3 py-1.5 ${item.key === filter.key ? "bg-indigo-600 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+          >
+            {item.label} ({countOf(item.statuses)})
+          </a>
+        ))}
       </div>
+
+      {views.length === 0 ? (
+        <div className="card p-8 text-center text-sm text-gray-500">Bu filtrede fiş yok.</div>
+      ) : (
+        <div className="space-y-3">
+          {views.map((slip) => (
+            <SlipCard key={slip.id} slip={slip} classGroups={classGroups} isAdmin={user.role === "ADMIN"} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

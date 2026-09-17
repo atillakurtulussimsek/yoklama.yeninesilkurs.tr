@@ -1,11 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/db";
-import { analyzeSlipImage, type ParsedSlip } from "@/lib/ai";
-import { applyAttendance, type AttendanceEntry } from "@/lib/attendance";
-import { classLabel, compareClassGroups, fullName } from "@/lib/classGroups";
-import { formatDate, fromDbDate, isDateStr, parseTrDate, toDbDate, todayStr } from "@/lib/dates";
+import type { ParsedSlip } from "@/lib/ai";
+import { fullName } from "@/lib/classGroups";
+import { formatDate } from "@/lib/dates";
 import { STATUS_LABELS } from "@/lib/labels";
-import { matchAbsences, matchClassGroup, type MatchedLesson, type MatchResult } from "@/lib/slipMatching";
+import type { MatchResult } from "@/lib/slipMatching";
+import { analyzeSlip, applySlip } from "@/lib/slipCore";
 import {
   answerCallbackQuery,
   downloadFile,
@@ -165,84 +165,42 @@ async function processSlip(account: Account, fileId: string, caption?: string) {
   await prisma.attendanceSlip.updateMany({ where: { chatId, status: "PENDING" }, data: { status: "CANCELLED" } });
 
   const slip = await prisma.attendanceSlip.create({
-    data: { branchId, academicYearId: academicYear.id, chatId, userId: account.userId, teacherId: account.teacherId, telegramFileId: fileId },
+    data: {
+      branchId,
+      academicYearId: academicYear.id,
+      source: "TELEGRAM",
+      status: "ANALYZING",
+      chatId,
+      userId: account.userId,
+      teacherId: account.teacherId,
+      telegramFileId: fileId,
+    },
   });
 
-  const fail = async (error: string) => {
-    console.error(`Fiş #${slip.id} başarısız:`, error);
-    await prisma.attendanceSlip.update({ where: { id: slip.id }, data: { status: "FAILED", errorMessage: error.slice(0, 500) } });
-    await sendMessage(chatId, `⚠️ ${escapeHtml(error)}`);
-  };
-
-  const imagePromise = downloadFile(fileId).then(
-    (image) => ({ image }),
-    (error: unknown) => ({ error: error instanceof Error ? error.message : "Görsel indirilemedi" }),
-  );
-  const [groups, enrollments] = await Promise.all([
-    prisma.classGroup.findMany({ where: { branchId, academicYearId: academicYear.id, isActive: true } }),
-    prisma.studentEnrollment.findMany({
-      where: { branchId, academicYearId: academicYear.id, status: "ACTIVE" },
-      select: {
-        id: true,
-        studentNo: true,
-        classGroupId: true,
-        classGroup: { select: { gradeLevel: true, name: true } },
-        student: { select: { firstName: true, lastName: true } },
-      },
-    }),
+  const [downloaded] = await Promise.all([
+    downloadFile(fileId).then(
+      (image) => ({ image }),
+      (error: unknown) => ({ error: error instanceof Error ? error.message : "Görsel indirilemedi" }),
+    ),
     sendMessage(chatId, "Fiş alındı, çözümleniyor..."),
     sendChatAction(chatId),
   ]);
-
-  const downloaded = await imagePromise;
-  if ("error" in downloaded) return fail(downloaded.error);
-  const { image } = downloaded;
-
-  const analysis = await analyzeSlipImage({
-    branchId,
-    imageBase64: image.base64,
-    mime: image.mime,
-    classLabels: groups.sort(compareClassGroups).map(classLabel),
-  });
-  if ("error" in analysis) return fail(analysis.error);
-  const parsed = analysis.parsed;
+  if ("error" in downloaded) {
+    await prisma.attendanceSlip.update({ where: { id: slip.id }, data: { status: "FAILED", errorMessage: downloaded.error } });
+    await sendMessage(chatId, `⚠️ ${escapeHtml(downloaded.error)}`);
+    return;
+  }
 
   // Açıklama metninde tarih belirtilmişse fişteki tarihi geçersiz kılar (örn. "12.09.2026")
-  const captionDate = caption?.match(/(\d{1,2}[./]\d{1,2}[./]\d{4})/)?.[1];
-  const classGroupId = matchClassGroup(parsed.className, groups);
-  const date = resolveDate(captionDate ?? parsed.date);
-  const group = groups.find((item) => item.id === classGroupId);
-  const candidates = enrollments.map((enrollment) => ({
-    enrollmentId: enrollment.id,
-    studentNo: enrollment.studentNo,
-    fullName: fullName(enrollment.student),
-    classGroupId: enrollment.classGroupId,
-    className: classLabel(enrollment.classGroup),
-  }));
-
-  // Fişteki ders numaraları için tanımlı ders yoksa "N. Ders" olarak oluşturulur
-  const lessonNos = [...new Set(parsed.lessons.map((lesson) => lesson.lessonNo))].sort((a, b) => a - b);
-  const periods = await ensureLessonPeriods(branchId, lessonNos);
-
-  const lessons: MatchedLesson[] = parsed.lessons
-    .filter((lesson, index, all) => all.findIndex((item) => item.lessonNo === lesson.lessonNo) === index)
-    .sort((a, b) => a.lessonNo - b.lessonNo)
-    .map((lesson) => {
-      const period = periods.get(lesson.lessonNo)!;
-      return {
-        lessonNo: lesson.lessonNo,
-        subject: lesson.subject,
-        slot: period.id,
-        lessonName: period.name,
-        full: lesson.full || lesson.absences.length === 0,
-        absences: matchAbsences(lesson.absences, candidates, classGroupId),
-      };
-    });
-
-  const matched: MatchResult = { classGroupId, className: group ? classLabel(group) : null, date, lessons };
-
-  const text = buildPreview(parsed, matched, analysis.ms);
-  const keyboard = matched.classGroupId && lessons.length
+  const captionDate = caption?.match(/(\d{1,2}[./]\d{1,2}[./]\d{4})/)?.[1] ?? null;
+  const result = await analyzeSlip(slip.id, downloaded.image, { dateOverride: captionDate });
+  if ("error" in result) {
+    await sendMessage(chatId, `⚠️ ${escapeHtml(result.error)}`);
+    return;
+  }
+  const { matched, parsed, ms } = result;
+  const text = buildPreview(parsed, matched, ms);
+  const keyboard = matched.classGroupId && matched.lessons.length
     ? [
         [
           { text: "✅ Onayla ve kaydet", callback_data: `slip:${slip.id}:ok` },
@@ -251,37 +209,13 @@ async function processSlip(account: Account, fileId: string, caption?: string) {
       ]
     : [[{ text: "❌ Kapat", callback_data: `slip:${slip.id}:no` }]];
   const preview = await sendMessage(chatId, text, keyboard);
-  await prisma.attendanceSlip.update({
-    where: { id: slip.id },
-    data: { parsed, matched, previewMessageId: preview.message_id, analysisMs: analysis.ms, totalMs: Date.now() - slip.createdAt.getTime() },
-  });
+  await prisma.attendanceSlip.update({ where: { id: slip.id }, data: { previewMessageId: preview.message_id } });
 }
 
-async function ensureLessonPeriods(branchId: number, lessonNos: number[]) {
-  const existing = await prisma.lessonPeriod.findMany({ where: { branchId, orderNo: { in: lessonNos } } });
-  const map = new Map(existing.filter((p) => p.isActive).map((p) => [p.orderNo, p]));
-  for (const period of existing) if (!map.has(period.orderNo)) map.set(period.orderNo, period);
-  for (const lessonNo of lessonNos) {
-    if (map.has(lessonNo)) continue;
-    const created = await prisma.lessonPeriod.create({
-      data: { branchId, orderNo: lessonNo, name: `${lessonNo}. Ders`, session: lessonNo >= 5 ? "AFTERNOON" : "MORNING" },
-    });
-    map.set(lessonNo, created);
-  }
-  return map;
-}
-
-function resolveDate(value: string | null) {
-  if (!value) return todayStr();
-  if (isDateStr(value)) return value;
-  const parsed = parseTrDate(value);
-  return parsed ? fromDbDate(parsed) : todayStr();
-}
-
-function buildPreview(parsed: ParsedSlip, matched: MatchResult, ms: number) {
+function buildPreview(parsed: ParsedSlip | null, matched: MatchResult, ms: number) {
   const lines: string[] = ["<b>Yoklama fişi çözümlendi</b>", ""];
-  lines.push(`Sınıf: <b>${matched.className ? escapeHtml(matched.className) : `⚠️ bulunamadı (${escapeHtml(parsed.className ?? "-")})`}</b>`);
-  lines.push(`Tarih: <b>${formatDate(matched.date)}</b>${parsed.date ? "" : " (fişte okunamadı, bugün alındı)"}`);
+  lines.push(`Sınıf: <b>${matched.className ? escapeHtml(matched.className) : `⚠️ bulunamadı (${escapeHtml(parsed?.className ?? "-")})`}</b>`);
+  lines.push(`Tarih: <b>${formatDate(matched.date)}</b>${parsed?.date ? "" : " (fişte okunamadı, bugün alındı)"}`);
   lines.push("");
   if (matched.lessons.length === 0) {
     lines.push("⚠️ Fişte işlenmiş ders bulunamadı.");
@@ -303,7 +237,7 @@ function buildPreview(parsed: ParsedSlip, matched: MatchResult, ms: number) {
       }
     }
   }
-  if (parsed.notes) lines.push("", `Not: ${escapeHtml(parsed.notes)}`);
+  if (parsed?.notes) lines.push("", `Not: ${escapeHtml(parsed.notes)}`);
   lines.push("");
   if (!matched.classGroupId) {
     lines.push("Sınıf eşleşmediği için kayıt yapılamaz. Fişte sınıfı okunaklı yazıp yeniden gönderin.");
@@ -339,46 +273,14 @@ async function handleCallback(query: TelegramCallbackQuery) {
     return;
   }
 
-  const matched = slip.matched as MatchResult | null;
-  if (!matched || !matched.classGroupId || matched.lessons.length === 0) {
-    await answerCallbackQuery(query.id, "Kaydedilecek veri yok");
+  const actor = slip.userId ? { userId: slip.userId } : { teacherId: slip.teacherId! };
+  const applied = await applySlip(slipId, actor);
+  if ("error" in applied) {
+    await answerCallbackQuery(query.id, "Kaydedilemedi");
+    await sendMessage(chatId, `⚠️ ${escapeHtml(applied.error)}`);
     return;
   }
-
-  const classmates = await prisma.studentEnrollment.findMany({
-    where: { classGroupId: matched.classGroupId, status: "ACTIVE" },
-    select: { id: true },
-  });
-  const actor = slip.userId ? { userId: slip.userId } : { teacherId: slip.teacherId! };
-  let markedTotal = 0;
-
-  for (const lesson of matched.lessons) {
-    const marked: AttendanceEntry[] = lesson.absences
-      .filter((absence) => absence.enrollmentId)
-      .map((absence) => ({ enrollmentId: absence.enrollmentId!, status: absence.status, note: absence.note ?? undefined }));
-    const markedIds = new Set(marked.map((entry) => entry.enrollmentId));
-    // Sınıfın diğer öğrencileri o derste var sayılır
-    const present: AttendanceEntry[] = classmates.filter((c) => !markedIds.has(c.id)).map((c) => ({ enrollmentId: c.id, status: null }));
-
-    const result = await applyAttendance({
-      branchId: slip.branchId,
-      academicYearId: slip.academicYearId,
-      date: toDbDate(matched.date),
-      slot: lesson.slot,
-      entries: [...marked, ...present],
-      actor,
-    });
-    if ("error" in result) {
-      const error = result.error ?? "Bilinmeyen hata";
-      await prisma.attendanceSlip.update({ where: { id: slipId }, data: { status: "FAILED", errorMessage: error } });
-      await answerCallbackQuery(query.id, "Hata oluştu");
-      await sendMessage(chatId, `⚠️ ${lesson.lessonNo}. ders kaydedilemedi: ${escapeHtml(error)}`);
-      return;
-    }
-    markedTotal += result.markedCount;
-  }
-
-  await prisma.attendanceSlip.update({ where: { id: slipId }, data: { status: "APPLIED", appliedAt: new Date() } });
+  const { matched, markedTotal } = applied;
   await answerCallbackQuery(query.id, "Kaydedildi");
   await editMessageText(
     chatId,

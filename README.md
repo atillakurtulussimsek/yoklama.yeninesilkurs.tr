@@ -63,6 +63,6 @@ npm run dev
    APP_URL=https://yoklama.yeninesilkurs.tr
    ```
 3. Domains: `yoklama.yeninesilkurs.tr` → port `3000`, HTTPS açık.
-4. Deploy. Konteyner açılışta migration'ları otomatik uygular.
+4. Şema değiştiyse deploy'dan önce yerelden `npm run db:deploy` (canlı DB'ye migration). Konteyner migration çalıştırmaz.
 
 Sağlık kontrolü: `GET /api/health`

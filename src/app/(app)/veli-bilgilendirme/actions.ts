@@ -7,7 +7,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { getContext } from "@/lib/context";
 
 const contactSchema = z.object({
-  recordIds: z.array(z.number().int().positive()).min(1),
+  recordIds: z.array(z.number().int().positive()).optional(),
+  examAttendanceIds: z.array(z.number().int().positive()).optional(),
   guardianId: z.number().int().positive().nullable(),
   result: z.enum(["REACHED", "NO_ANSWER", "SMS_SENT", "PARENT_INFORMED"]),
   note: z.string().trim().max(255).optional(),
@@ -22,23 +23,24 @@ export async function addContactLog(input: z.infer<typeof contactSchema>) {
   const parsed = contactSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  const records = await prisma.attendanceRecord.findMany({
-    where: {
-      id: { in: parsed.data.recordIds },
-      enrollment: { branchId: branch.id, academicYearId: academicYear.id },
-    },
-    select: { id: true },
-  });
-  if (records.length === 0) return { error: "Kayıt bulunamadı" };
+  const scope = { branchId: branch.id, academicYearId: academicYear.id };
+  const base = { guardianId: parsed.data.guardianId, result: parsed.data.result, note: parsed.data.note || null, userId: user.id };
+
+  const [records, examAttendances] = await Promise.all([
+    parsed.data.recordIds?.length
+      ? prisma.attendanceRecord.findMany({ where: { id: { in: parsed.data.recordIds }, enrollment: scope }, select: { id: true } })
+      : [],
+    parsed.data.examAttendanceIds?.length
+      ? prisma.examAttendance.findMany({ where: { id: { in: parsed.data.examAttendanceIds }, enrollment: scope }, select: { id: true } })
+      : [],
+  ]);
+  if (records.length === 0 && examAttendances.length === 0) return { error: "Kayıt bulunamadı" };
 
   await prisma.attendanceContactLog.createMany({
-    data: records.map((record) => ({
-      recordId: record.id,
-      guardianId: parsed.data.guardianId,
-      result: parsed.data.result,
-      note: parsed.data.note || null,
-      userId: user.id,
-    })),
+    data: [
+      ...records.map((record) => ({ recordId: record.id, ...base })),
+      ...examAttendances.map((item) => ({ examAttendanceId: item.id, ...base })),
+    ],
   });
 
   revalidatePath("/", "layout");

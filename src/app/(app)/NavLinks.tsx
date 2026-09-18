@@ -19,6 +19,7 @@ const GROUPS: NavGroup[] = [
       { href: "/gunluk-devamsizlik", label: "Günlük Devamsızlık" },
       { href: "/veli-bilgilendirme", label: "Veli Bilgilendirme" },
       { href: "/yoklama-fisleri", label: "Yoklama Fişleri" },
+      { href: "/sinavlar", label: "Deneme Sınavları" },
     ],
   },
   {

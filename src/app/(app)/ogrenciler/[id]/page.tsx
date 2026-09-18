@@ -24,6 +24,7 @@ export default async function StudentDetailPage({ params }: PageProps<"/ogrencil
       include: {
         classGroup: { select: { gradeLevel: true, name: true } },
         student: { include: { guardians: { include: { guardian: true } } } },
+        examAttendances: { include: { exam: { select: { id: true, name: true, date: true } } }, orderBy: { exam: { date: "desc" } } },
         attendanceRecords: {
           orderBy: [{ date: "desc" }, { slot: "asc" }],
           include: {
@@ -146,6 +147,23 @@ export default async function StudentDetailPage({ params }: PageProps<"/ogrencil
         </section>
 
         <div className="space-y-5">
+          <section className="card p-5">
+            <h2 className="mb-2 font-semibold">Deneme sınavları</h2>
+            {enrollment.examAttendances.length === 0 ? (
+              <p className="text-sm text-gray-500">Katılmadığı sınav yok.</p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {enrollment.examAttendances.map((item) => (
+                  <li key={item.id} className="flex flex-wrap items-center gap-2">
+                    <Link href={`/sinavlar/${item.exam.id}`} className="hover:text-indigo-600">{formatDate(item.exam.date)} · {item.exam.name}</Link>
+                    <span className={`badge ${STATUS_COLORS[item.status]}`}>{item.status === "ABSENT" ? "Katılmadı" : STATUS_LABELS[item.status]}</span>
+                    {item.note && <span className="text-xs text-gray-500">{item.note}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section className="card p-5">
             <h2 className="mb-4 font-semibold">Öğrenci bilgileri</h2>
             <StudentForm enrollment={enrollment} classGroups={classGroups} />

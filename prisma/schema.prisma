@@ -59,6 +59,7 @@ model AcademicYear {
   terms       AcademicTerm[]
   classGroups ClassGroup[]
   enrollments StudentEnrollment[]
+  exams       Exam[]
 
   @@map("academic_years")
 }
@@ -98,6 +99,7 @@ model Branch {
   telegramAccounts   TelegramAccount[]
   telegramLinkCodes  TelegramLinkCode[]
   attendanceSlips    AttendanceSlip[]
+  exams              Exam[]
 
   @@map("branches")
 }
@@ -301,6 +303,8 @@ model ClassGroup {
   academicYear       AcademicYear        @relation(fields: [academicYearId], references: [id])
   enrollments        StudentEnrollment[]
   attendanceSessions AttendanceSession[]
+  examClassGroups    ExamClassGroup[]
+  examSessions       ExamSession[]
 
   @@unique([branchId, academicYearId, gradeLevel, name])
   @@map("class_groups")
@@ -332,6 +336,7 @@ model StudentEnrollment {
   classGroup        ClassGroup?        @relation(fields: [classGroupId], references: [id], onDelete: SetNull)
   attendanceRecords AttendanceRecord[]
   dailyAbsences     DailyAbsence[]
+  examAttendances   ExamAttendance[]
 
   @@unique([branchId, academicYearId, studentNo])
   @@unique([studentId, branchId, academicYearId])
@@ -468,19 +473,95 @@ enum ContactResult {
   PARENT_INFORMED
 }
 
+// Veli bilgilendirme kaydı: ders devamsızlığına (recordId) veya sınav devamsızlığına (examAttendanceId) bağlıdır
 model AttendanceContactLog {
-  id         Int           @id @default(autoincrement())
-  recordId   Int           @map("record_id")
-  guardianId Int?          @map("guardian_id")
-  result     ContactResult
-  note       String?       @db.VarChar(255)
-  userId     Int           @map("user_id")
-  createdAt  DateTime      @default(now()) @map("created_at")
+  id               Int           @id @default(autoincrement())
+  recordId         Int?          @map("record_id")
+  examAttendanceId Int?          @map("exam_attendance_id")
+  guardianId       Int?          @map("guardian_id")
+  result           ContactResult
+  note             String?       @db.VarChar(255)
+  userId           Int           @map("user_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
 
-  record   AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  guardian Guardian?        @relation(fields: [guardianId], references: [id], onDelete: SetNull)
-  user     User             @relation(fields: [userId], references: [id])
+  record         AttendanceRecord? @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  examAttendance ExamAttendance?   @relation(fields: [examAttendanceId], references: [id], onDelete: Cascade)
+  guardian       Guardian?         @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+  user           User              @relation(fields: [userId], references: [id])
 
   @@index([recordId])
+  @@index([examAttendanceId])
   @@map("attendance_contact_logs")
+}
+
+// ============================================================
+// DENEME SINAVLARI (günlük devamsızlıktan bağımsız)
+// ============================================================
+
+model Exam {
+  id             Int      @id @default(autoincrement())
+  branchId       Int      @map("branch_id")
+  academicYearId Int      @map("academic_year_id")
+  name           String   @db.VarChar(150)
+  date           DateTime @db.Date
+  note           String?  @db.VarChar(255)
+  createdById    Int?     @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  branch       Branch          @relation(fields: [branchId], references: [id])
+  academicYear AcademicYear    @relation(fields: [academicYearId], references: [id])
+  classGroups  ExamClassGroup[]
+  attendances  ExamAttendance[]
+  sessions     ExamSession[]
+
+  @@index([branchId, date])
+  @@map("exams")
+}
+
+// Sınavın uygulandığı şubeler; hiç satır yoksa tüm şubeler
+model ExamClassGroup {
+  examId       Int @map("exam_id")
+  classGroupId Int @map("class_group_id")
+
+  exam       Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  classGroup ClassGroup @relation(fields: [classGroupId], references: [id], onDelete: Cascade)
+
+  @@id([examId, classGroupId])
+  @@map("exam_class_groups")
+}
+
+// Bir şubenin sınav yoklamasının alındığını gösterir
+model ExamSession {
+  id           Int      @id @default(autoincrement())
+  examId       Int      @map("exam_id")
+  classGroupId Int      @map("class_group_id")
+  takenById    Int?     @map("taken_by_id")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  exam       Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  classGroup ClassGroup @relation(fields: [classGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, classGroupId])
+  @@map("exam_sessions")
+}
+
+// Sınava katılmayan/geç kalan/mazeretli öğrenci; kayıt yoksa katıldı
+model ExamAttendance {
+  id           Int              @id @default(autoincrement())
+  examId       Int              @map("exam_id")
+  enrollmentId Int              @map("enrollment_id")
+  status       AttendanceStatus
+  note         String?          @db.VarChar(255)
+  createdById  Int?             @map("created_by_id")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  exam        Exam                   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  enrollment  StudentEnrollment      @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  contactLogs AttendanceContactLog[]
+
+  @@unique([examId, enrollmentId])
+  @@index([enrollmentId])
+  @@map("exam_attendances")
 }

@@ -24,10 +24,12 @@ const chipClass = (active: boolean) =>
 
 export default function ContactPanel({
   recordIds,
+  examAttendanceIds,
   guardians,
   logs,
 }: {
-  recordIds: number[];
+  recordIds?: number[];
+  examAttendanceIds?: number[];
   guardians: { id: number; label: string }[];
   logs: Log[];
 }) {
@@ -40,7 +42,7 @@ export default function ContactPanel({
   function submit() {
     if (!result) return;
     startTransition(async () => {
-      const response = await addContactLog({ recordIds, guardianId, result, note });
+      const response = await addContactLog({ recordIds, examAttendanceIds, guardianId, result, note });
       if ("error" in response) {
         setError(response.error!);
       } else {

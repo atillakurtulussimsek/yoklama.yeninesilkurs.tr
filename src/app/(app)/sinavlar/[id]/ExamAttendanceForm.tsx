@@ -4,6 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import type { AttendanceStatus } from "@/generated/prisma/enums";
 import { STATUSES, STATUS_LABELS } from "@/lib/labels";
+
+// Sınavda erken çıkış kullanılmaz
+const EXAM_STATUSES = STATUSES.filter((status) => status !== "EARLY_LEAVE");
 import { saveExamAttendance } from "../actions";
 
 type Student = { id: number; studentNo: number; fullName: string; className: string };
@@ -115,7 +118,7 @@ export default function ExamAttendanceForm({
                       >
                         Katıldı
                       </button>
-                      {STATUSES.map((status) => (
+                      {EXAM_STATUSES.map((status) => (
                         <button
                           key={status}
                           type="button"

@@ -80,7 +80,7 @@ const attendanceSchema = z.object({
     .array(
       z.object({
         enrollmentId: z.number().int().positive(),
-        status: z.enum(["ABSENT", "LATE", "EARLY_LEAVE", "EXCUSED"]).nullable(),
+        status: z.enum(["ABSENT", "LATE", "EXCUSED"]).nullable(),
         note: z.string().trim().max(255).optional(),
       }),
     )

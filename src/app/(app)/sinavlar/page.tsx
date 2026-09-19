@@ -73,7 +73,7 @@ export default async function ExamsPage() {
                     </span>
                     <span className="text-gray-400"> · {expected} öğrenci</span>
                   </td>
-                  <td>{counts.ABSENT + counts.EARLY_LEAVE || ""}</td>
+                  <td>{counts.ABSENT || ""}</td>
                   <td>{counts.LATE || ""}</td>
                   <td>{counts.EXCUSED || ""}</td>
                   <td className={uncontacted ? "text-orange-700" : "text-gray-400"}>{uncontacted || ""}</td>

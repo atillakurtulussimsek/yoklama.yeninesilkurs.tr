@@ -4,13 +4,14 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import type { AttendanceStatus } from "@/generated/prisma/enums";
 import { STATUSES, STATUS_LABELS } from "@/lib/labels";
-
-// Sınavda erken çıkış kullanılmaz
-const EXAM_STATUSES = STATUSES.filter((status) => status !== "EARLY_LEAVE");
 import { saveExamAttendance } from "../actions";
 
+// Sınavda erken çıkış kullanılmaz
+type ExamStatus = Exclude<AttendanceStatus, "EARLY_LEAVE">;
+const EXAM_STATUSES = STATUSES.filter((status): status is ExamStatus => status !== "EARLY_LEAVE");
+
 type Student = { id: number; studentNo: number; fullName: string; className: string };
-type Entry = { status: AttendanceStatus | null; note: string };
+type Entry = { status: ExamStatus | null; note: string };
 
 const ACTIVE_COLORS: Record<AttendanceStatus, string> = {
   ABSENT: "bg-red-600 text-white border-red-600",
@@ -29,7 +30,13 @@ export default function ExamAttendanceForm({
   initialRecords: { enrollmentId: number; status: AttendanceStatus; note: string | null }[];
 }) {
   const [entries, setEntries] = useState<Record<number, Entry>>(() =>
-    Object.fromEntries(initialRecords.map((record) => [record.enrollmentId, { status: record.status, note: record.note ?? "" }])),
+    Object.fromEntries(
+      initialRecords.map((record) => [
+        record.enrollmentId,
+        // Eski "erken çıkış" kaydı varsa katılmadı olarak gösterilir
+        { status: record.status === "EARLY_LEAVE" ? "ABSENT" : record.status, note: record.note ?? "" },
+      ]),
+    ),
   );
   const [search, setSearch] = useState("");
   const [onlyMarked, setOnlyMarked] = useState(false);

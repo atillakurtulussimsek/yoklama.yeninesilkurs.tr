@@ -50,6 +50,8 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
 
   const scopedIds = exam.classGroups.map((item) => item.classGroupId);
   const examGroups = scopedIds.length ? classGroups.filter((g) => scopedIds.includes(g.id)) : classGroups;
+  // Seçili şubelerin bazıları artık boş olabilir (yeni öğrenci aktarımından sonra)
+  const emptyScopedCount = scopedIds.length - examGroups.length;
   const listGroupIds = classFilter && examGroups.some((g) => g.id === classFilter) ? [classFilter] : examGroups.map((g) => g.id);
 
   const enrollments = await prisma.studentEnrollment.findMany({
@@ -78,6 +80,13 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
         </div>
       </div>
 
+      {emptyScopedCount > 0 && (
+        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Bu sınav için seçilen {emptyScopedCount} şubede artık aktif öğrenci yok (öğrenci listesi yenilenmiş olabilir). Aşağıdaki
+          &quot;Sınav bilgileri&quot; bölümünden şubeleri güncelleyin.
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {examGroups.map((group) => (
           <Link
@@ -96,7 +105,9 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
         <h2 className="font-semibold">Sınav yoklaması</h2>
         <p className="text-sm text-gray-500">Varsayılan &quot;Katıldı&quot;; yalnızca katılmayan, geç kalan veya mazeretli öğrencileri işaretleyin.</p>
         {students.length === 0 ? (
-          <div className="card p-6 text-center text-sm text-gray-500">Bu şubede öğrenci yok.</div>
+          <div className="card p-6 text-center text-sm text-gray-500">
+            {examGroups.length === 0 ? "Seçili şubelerde aktif öğrenci yok; sınav bilgilerinden şubeleri güncelleyin." : "Bu şubede öğrenci yok."}
+          </div>
         ) : (
           <ExamAttendanceForm
             key={`${exam.id}-${classFilter}`}

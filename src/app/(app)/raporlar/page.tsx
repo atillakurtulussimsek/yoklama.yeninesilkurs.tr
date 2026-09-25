@@ -14,7 +14,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/raporlar
   const selectedTerm = terms.find((term) => term.id === filter.termId);
   const [report, classGroups] = await Promise.all([
     getReport(branch.id, academicYear.id, filter),
-    getClassGroupOptions(branch.id, academicYear.id),
+    getClassGroupOptions(branch.id, academicYear.id, { includeEmpty: true }),
   ]);
   const selectedClass = classGroups.find((group) => group.id === filter.classGroupId);
 

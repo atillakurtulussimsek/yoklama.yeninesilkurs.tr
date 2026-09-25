@@ -416,6 +416,16 @@ export async function importK12Workbook(
           });
           summary.cancelled = result.count;
         }
+
+        // Aktif öğrencisi kalmayan şubeler pasife alınır, öğrenci kazananlar aktife döner
+        await tx.classGroup.updateMany({
+          where: { branchId, academicYearId, isActive: true, enrollments: { none: { status: "ACTIVE" } } },
+          data: { isActive: false },
+        });
+        await tx.classGroup.updateMany({
+          where: { branchId, academicYearId, isActive: false, enrollments: { some: { status: "ACTIVE" } } },
+          data: { isActive: true },
+        });
       },
       { timeout: 600_000, maxWait: 30_000 },
     );

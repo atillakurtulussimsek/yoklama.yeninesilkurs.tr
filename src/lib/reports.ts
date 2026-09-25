@@ -51,9 +51,18 @@ export async function getTermOptions(academicYearId: number): Promise<TermOption
   }));
 }
 
-export async function getClassGroupOptions(branchId: number, academicYearId: number) {
+/**
+ * Sınıf seçenekleri. Varsayılan olarak yalnızca aktif öğrencisi olan şubeler döner;
+ * geçmiş kayıtlar için (raporlar) includeEmpty ile boş şubeler de alınabilir.
+ */
+export async function getClassGroupOptions(branchId: number, academicYearId: number, options: { includeEmpty?: boolean } = {}) {
   const groups = await prisma.classGroup.findMany({
-    where: { branchId, academicYearId, isActive: true },
+    where: {
+      branchId,
+      academicYearId,
+      isActive: true,
+      ...(options.includeEmpty ? {} : { enrollments: { some: { status: "ACTIVE" } } }),
+    },
     select: { id: true, gradeLevel: true, name: true, field: true },
   });
   return groups.sort(compareClassGroups).map((group) => ({ ...group, label: classLabel(group) }));

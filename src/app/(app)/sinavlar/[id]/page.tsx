@@ -75,6 +75,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
           <p className="text-sm text-gray-500">{formatDateLong(exam.date)} · {examGroups.map((g) => g.label).join(", ")}</p>
         </div>
         <div className="flex gap-2">
+          <a href={`/api/rapor/sinav/${exam.id}/pdf${classFilter ? `?sinif=${classFilter}` : ""}`} className="btn-primary" target="_blank" rel="noreferrer">PDF raporu</a>
           <a href={`/api/rapor/sinav/${exam.id}`} className="btn-secondary">Excel indir</a>
           {user.role === "ADMIN" && <DeleteExamButton id={exam.id} />}
         </div>

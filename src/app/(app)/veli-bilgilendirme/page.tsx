@@ -30,6 +30,31 @@ export default async function ParentContactPage({ searchParams }: PageProps<"/ve
     },
   });
 
+  // Aynı günün deneme sınavı devamsızlıkları da veli bilgilendirmesine dahil
+  const examItems = await prisma.examAttendance.findMany({
+    where: { exam: { date: toDbDate(date), branchId: branch.id, academicYearId: academicYear.id } },
+    include: {
+      exam: { select: { id: true, name: true } },
+      enrollment: {
+        include: {
+          classGroup: { select: { gradeLevel: true, name: true } },
+          student: { include: { guardians: { include: { guardian: true } } } },
+        },
+      },
+      contactLogs: {
+        include: { user: { select: { fullName: true } }, guardian: { select: { firstName: true, lastName: true } } },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+  const examList = examItems.sort(
+    (a, b) =>
+      compareClassGroups(a.enrollment.classGroup, b.enrollment.classGroup) ||
+      fullName(a.enrollment.student).localeCompare(fullName(b.enrollment.student), "tr-TR"),
+  );
+  const examPending = examList.filter((item) => item.contactLogs.length === 0);
+  const examShown = showAll ? examList : examPending;
+
   type Group = { enrollment: (typeof records)[number]["enrollment"]; records: typeof records };
   const groups = new Map<number, Group>();
   for (const record of records) {
@@ -69,20 +94,20 @@ export default async function ParentContactPage({ searchParams }: PageProps<"/ve
             href={filterLink("bekleyen")}
             className={`rounded-md px-3 py-1.5 ${!showAll ? "bg-indigo-600 text-white" : "text-gray-600"}`}
           >
-            Bekleyen ({pendingGroups.length})
+            Bekleyen ({pendingGroups.length + examPending.length})
           </Link>
           <Link
             href={filterLink("tumu")}
             className={`rounded-md px-3 py-1.5 ${showAll ? "bg-indigo-600 text-white" : "text-gray-600"}`}
           >
-            Tümü ({allGroups.length})
+            Tümü ({allGroups.length + examList.length})
           </Link>
         </div>
       </div>
 
-      {list.length === 0 ? (
+      {list.length === 0 && examShown.length === 0 ? (
         <div className="card p-8 text-center text-sm text-gray-500">
-          {allGroups.length === 0 ? "Bu tarihte devamsızlık kaydı yok." : "Bekleyen veli bilgilendirmesi yok."}
+          {allGroups.length === 0 && examList.length === 0 ? "Bu tarihte devamsızlık kaydı yok." : "Bekleyen veli bilgilendirmesi yok."}
         </div>
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
@@ -164,6 +189,68 @@ export default async function ParentContactPage({ searchParams }: PageProps<"/ve
             );
           })}
         </div>
+      )}
+
+      {examShown.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="font-semibold">Deneme sınavı devamsızlıkları ({examShown.length})</h2>
+          <div className="grid gap-3 xl:grid-cols-2">
+            {examShown.map((item) => {
+              const guardians = sortGuardianLinks(item.enrollment.student.guardians);
+              return (
+                <div key={item.id} className="card border-violet-200 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <Link href={`/ogrenciler/${item.enrollment.id}`} className="font-semibold hover:text-indigo-600">
+                        {fullName(item.enrollment.student)}
+                      </Link>
+                      <div className="text-xs text-gray-500">
+                        No {item.enrollment.studentNo} · {classLabel(item.enrollment.classGroup)}
+                      </div>
+                    </div>
+                    <div className="space-y-0.5 text-right text-sm">
+                      {guardians.map((link) => (
+                        <div key={link.id}>
+                          <span className="text-gray-500">{RELATION_LABELS[link.relation]} {link.guardian.firstName}: </span>
+                          {link.guardian.phone ? (
+                            <a href={`tel:${link.guardian.phone}`} className="font-medium text-indigo-600 hover:underline">
+                              {formatPhone(link.guardian.phone)}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-red-600">tel yok</span>
+                          )}
+                        </div>
+                      ))}
+                      {guardians.length === 0 && <span className="text-xs text-red-600">Veli kayıtlı değil</span>}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Link href={`/sinavlar/${item.exam.id}`} className="badge bg-violet-50 text-violet-800 ring-violet-200 hover:bg-violet-100">
+                      Sınav: {item.exam.name}
+                    </Link>
+                    <span className={`badge ${STATUS_COLORS[item.status]}`}>
+                      {item.status === "ABSENT" ? "Katılmadı" : STATUS_LABELS[item.status]}
+                      {item.note ? ` – ${item.note}` : ""}
+                    </span>
+                  </div>
+                  <ContactPanel
+                    examAttendanceIds={[item.id]}
+                    guardians={guardians.map((link) => ({ id: link.guardian.id, label: `${RELATION_LABELS[link.relation]} (${link.guardian.firstName})` }))}
+                    logs={item.contactLogs.map((log) => ({
+                      id: log.id,
+                      result: log.result,
+                      note: log.note,
+                      guardianName: log.guardian ? fullName(log.guardian) : null,
+                      userName: log.user.fullName,
+                      createdAt: log.createdAt.toISOString(),
+                      canDelete: user.role === "ADMIN" || log.userId === user.id,
+                    }))}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
   );
